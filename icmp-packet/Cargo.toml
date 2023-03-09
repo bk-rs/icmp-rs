@@ -1,6 +1,6 @@
 [package]
 name = "icmp-packet"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["vkill <vkill.net@gmail.com>"]
 edition = "2021"
 description = "ICMP Packet"
@@ -13,3 +13,7 @@ categories = []
 readme = "README.md"
 
 [dependencies]
+pnet_packet = { version = "0.33", default-features = false }
+wrapping-macro = { version = "0.2", default-features = false }
+
+rand = { version = "0.8", default-features = false, features = ["std", "std_rng"], optional = true }

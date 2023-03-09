@@ -1,0 +1,18 @@
+[package]
+name = "async-ping-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "async_ping_ping"
+path = "src/bin/ping.rs"
+
+[dependencies]
+async-ping = { version = "0.1", path = ".." }
+
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+icmp-client = { version = "0.1", features = ["impl_tokio"], path = "../../icmp-client" }
+
+tracing-subscriber = { version = "0.3" }
+log = { version = "0.4" }

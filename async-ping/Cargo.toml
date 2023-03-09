@@ -1,6 +1,6 @@
 [package]
 name = "async-ping"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["vkill <vkill.net@gmail.com>"]
 edition = "2021"
 description = "Async Ping"
@@ -13,3 +13,14 @@ categories = []
 readme = "README.md"
 
 [dependencies]
+icmp-client = { version = "0.1", path = "../icmp-client" }
+icmp-packet = { version = "0.1", features = ["rand"], path = "../icmp-packet" }
+
+tokio = { version = "1", default-features = false, features = ["sync", "time"] }
+
+tracing = { version = "0.1" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+icmp-client = { version = "0.1", features = ["impl_tokio"], path = "../icmp-client" }

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "async-ping",
+    "async-ping/cli",
     "icmp-client",
     "icmp-packet",
 ]

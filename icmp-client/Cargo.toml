@@ -1,6 +1,6 @@
 [package]
 name = "icmp-client"
-version = "0.0.0"
+version = "0.1.0"
 authors = ["vkill <vkill.net@gmail.com>"]
 edition = "2021"
 description = "ICMP Client"
@@ -12,4 +12,24 @@ keywords = []
 categories = []
 readme = "README.md"
 
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = ["impl_tokio"]
+
+impl_async_io = ["async-io"]
+impl_tokio = ["tokio"]
+
 [dependencies]
+socket2 = { version = "0.5", default-features = false, features = ["all"] }
+
+async-io = { version = "1", default-features = false, optional = true }
+tokio = { version = "1", default-features = false, features = ["net"], optional = true }
+
+async-trait = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+icmp-packet = { version = "0.1", path = "../icmp-packet" }
