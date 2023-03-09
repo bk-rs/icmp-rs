@@ -8,3 +8,13 @@ cargo fmt -- --check
 
 cargo test-all-features -- --nocapture
 ```
+
+## Publish order
+
+icmp-packet
+
+icmp-client
+
+async-ping
+
+async-ping/cli
