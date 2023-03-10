@@ -38,6 +38,15 @@ where
     v6_recv_from_map: V6RecvFromMap,
 }
 
+impl<C> core::fmt::Debug for PingClient<C>
+where
+    C: AsyncClient,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PingClient").finish()
+    }
+}
+
 impl<C> Clone for PingClient<C>
 where
     C: AsyncClient,
