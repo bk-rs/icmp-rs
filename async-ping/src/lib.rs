@@ -243,7 +243,7 @@ where
                 {
                     Ok(Some(Ok(icmpv4))) => Ok((Icmp::V4(icmpv4), now.elapsed())),
                     Ok(Some(Err(err))) => Err(PingError::Icmpv4ParseError(err)),
-                    Ok(None) => Err(PingError::Unknown("rx.recv None".to_string().into())),
+                    Ok(None) => Err(PingError::Unknown("rx.recv None".to_string())),
                     Err(_) => Err(PingError::RecvTimedOut),
                 }
             }
@@ -256,7 +256,7 @@ where
                 {
                     Ok(Some(Ok(icmpv6))) => Ok((Icmp::V6(icmpv6), now.elapsed())),
                     Ok(Some(Err(err))) => Err(PingError::Icmpv6ParseError(err)),
-                    Ok(None) => Err(PingError::Unknown("rx.recv None".to_string().into())),
+                    Ok(None) => Err(PingError::Unknown("rx.recv None".to_string())),
                     Err(_) => Err(PingError::RecvTimedOut),
                 }
             }
@@ -276,7 +276,7 @@ where
             .await?;
         match icmp {
             Icmp::V4(icmp) => Ok((icmp, dur)),
-            Icmp::V6(_) => Err(PingError::Unknown("unreachable".to_string().into())),
+            Icmp::V6(_) => Err(PingError::Unknown("unreachable".to_string())),
         }
     }
 
@@ -292,7 +292,7 @@ where
             .ping(ip.into(), identifier, sequence_number, payload, timeout_dur)
             .await?;
         match icmp {
-            Icmp::V4(_) => Err(PingError::Unknown("unreachable".to_string().into())),
+            Icmp::V4(_) => Err(PingError::Unknown("unreachable".to_string())),
             Icmp::V6(icmp) => Ok((icmp, dur)),
         }
     }
@@ -305,7 +305,7 @@ pub enum PingError {
     Icmpv4ParseError(Icmpv4ParseError),
     Icmpv6ParseError(Icmpv6ParseError),
     RecvTimedOut,
-    Unknown(Box<dyn std::error::Error>),
+    Unknown(String),
 }
 impl core::fmt::Display for PingError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
