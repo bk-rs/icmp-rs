@@ -246,9 +246,12 @@ where
                 )
                 .await
                 {
-                    Ok(Some((Ok(icmpv4), instant_end))) => {
-                        Ok((Icmp::V4(icmpv4), instant_end.duration_since(instant_begin)))
-                    }
+                    Ok(Some((Ok(icmpv4), instant_end))) => Ok((
+                        Icmp::V4(icmpv4),
+                        instant_end
+                            .checked_duration_since(instant_begin)
+                            .unwrap_or(instant_begin.elapsed()),
+                    )),
                     Ok(Some((Err(err), _))) => Err(PingError::Icmpv4ParseError(err)),
                     Ok(None) => Err(PingError::Unknown("rx.recv None".to_string())),
                     Err(_) => Err(PingError::RecvTimedOut),
@@ -261,9 +264,12 @@ where
                 )
                 .await
                 {
-                    Ok(Some((Ok(icmpv6), instant_end))) => {
-                        Ok((Icmp::V6(icmpv6), instant_end.duration_since(instant_begin)))
-                    }
+                    Ok(Some((Ok(icmpv6), instant_end))) => Ok((
+                        Icmp::V6(icmpv6),
+                        instant_end
+                            .checked_duration_since(instant_begin)
+                            .unwrap_or(instant_begin.elapsed()),
+                    )),
                     Ok(Some((Err(err), _))) => Err(PingError::Icmpv6ParseError(err)),
                     Ok(None) => Err(PingError::Unknown("rx.recv None".to_string())),
                     Err(_) => Err(PingError::RecvTimedOut),
