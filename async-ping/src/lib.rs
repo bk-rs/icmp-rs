@@ -22,8 +22,10 @@ use tokio::sync::{
 use tracing::{event, Level};
 
 //
-type V4RecvFromMap = Arc<Mutex<HashMap<SocketAddr, Sender<Result<Icmpv4, Icmpv4ParseError>>>>>;
-type V6RecvFromMap = Arc<Mutex<HashMap<SocketAddr, Sender<Result<Icmpv6, Icmpv6ParseError>>>>>;
+type V4RecvFromMap =
+    Arc<Mutex<HashMap<SocketAddr, Sender<(Result<Icmpv4, Icmpv4ParseError>, Instant)>>>>;
+type V6RecvFromMap =
+    Arc<Mutex<HashMap<SocketAddr, Sender<(Result<Icmpv6, Icmpv6ParseError>, Instant)>>>>;
 
 //
 #[derive(Debug, Clone)]
@@ -81,6 +83,8 @@ where
         loop {
             match self.v4_client.recv_from(&mut buf).await {
                 Ok((n, addr)) => {
+                    let instant_end = Instant::now();
+
                     let bytes = if let Some(mut bytes) = bytes_map.remove(&addr) {
                         bytes.extend_from_slice(&buf[..n]);
                         bytes
@@ -91,7 +95,7 @@ where
                     match Icmpv4::parse_from_packet_bytes(&bytes) {
                         Ok(Some(icmpv4)) => {
                             if let Some(tx) = self.v4_recv_from_map.lock().await.remove(&addr) {
-                                if let Err(err) = tx.try_send(Ok(icmpv4)) {
+                                if let Err(err) = tx.try_send((Ok(icmpv4), instant_end)) {
                                     event!(Level::ERROR, "tx.send failed, err:{err} addr:{addr}");
                                 }
                             } else {
@@ -103,7 +107,7 @@ where
                         }
                         Err(err) => {
                             if let Some(tx) = self.v4_recv_from_map.lock().await.remove(&addr) {
-                                if let Err(err) = tx.try_send(Err(err)) {
+                                if let Err(err) = tx.try_send((Err(err), instant_end)) {
                                     event!(Level::ERROR, "tx.send failed, err:{err} addr:{addr}");
                                 }
                             } else {
@@ -127,6 +131,8 @@ where
         loop {
             match self.v6_client.recv_from(&mut buf).await {
                 Ok((n, addr)) => {
+                    let instant_end = Instant::now();
+
                     let bytes = if let Some(mut bytes) = bytes_map.remove(&addr) {
                         bytes.extend_from_slice(&buf[..n]);
                         bytes
@@ -137,7 +143,7 @@ where
                     match Icmpv6::parse_from_packet_bytes(&bytes) {
                         Ok(Some(icmpv6)) => {
                             if let Some(tx) = self.v6_recv_from_map.lock().await.remove(&addr) {
-                                if let Err(err) = tx.try_send(Ok(icmpv6)) {
+                                if let Err(err) = tx.try_send((Ok(icmpv6), instant_end)) {
                                     event!(Level::ERROR, "tx.send failed, err:{err} addr:{addr}");
                                 }
                             } else {
@@ -149,7 +155,7 @@ where
                         }
                         Err(err) => {
                             if let Some(tx) = self.v6_recv_from_map.lock().await.remove(&addr) {
-                                if let Err(err) = tx.try_send(Err(err)) {
+                                if let Err(err) = tx.try_send((Err(err), instant_end)) {
                                     event!(Level::ERROR, "tx.send failed, err:{err} addr:{addr}");
                                 }
                             } else {
@@ -209,15 +215,14 @@ where
         };
 
         //
-        let now = Instant::now();
+        let client = match ip {
+            IpAddr::V4(_) => &self.v4_client,
+            IpAddr::V6(_) => &self.v6_client,
+        };
 
-        //
+        let instant_begin = Instant::now();
+
         {
-            let client = match ip {
-                IpAddr::V4(_) => &self.v4_client,
-                IpAddr::V6(_) => &self.v6_client,
-            };
-
             let mut n_write = 0;
             while !echo_request_bytes[n_write..].is_empty() {
                 let n = client
@@ -241,8 +246,10 @@ where
                 )
                 .await
                 {
-                    Ok(Some(Ok(icmpv4))) => Ok((Icmp::V4(icmpv4), now.elapsed())),
-                    Ok(Some(Err(err))) => Err(PingError::Icmpv4ParseError(err)),
+                    Ok(Some((Ok(icmpv4), instant_end))) => {
+                        Ok((Icmp::V4(icmpv4), instant_end.duration_since(instant_begin)))
+                    }
+                    Ok(Some((Err(err), _))) => Err(PingError::Icmpv4ParseError(err)),
                     Ok(None) => Err(PingError::Unknown("rx.recv None".to_string())),
                     Err(_) => Err(PingError::RecvTimedOut),
                 }
@@ -254,8 +261,10 @@ where
                 )
                 .await
                 {
-                    Ok(Some(Ok(icmpv6))) => Ok((Icmp::V6(icmpv6), now.elapsed())),
-                    Ok(Some(Err(err))) => Err(PingError::Icmpv6ParseError(err)),
+                    Ok(Some((Ok(icmpv6), instant_end))) => {
+                        Ok((Icmp::V6(icmpv6), instant_end.duration_since(instant_begin)))
+                    }
+                    Ok(Some((Err(err), _))) => Err(PingError::Icmpv6ParseError(err)),
                     Ok(None) => Err(PingError::Unknown("rx.recv None".to_string())),
                     Err(_) => Err(PingError::RecvTimedOut),
                 }
