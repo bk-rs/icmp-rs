@@ -28,7 +28,6 @@ type V6RecvFromMap =
     Arc<Mutex<HashMap<SocketAddr, Sender<(Result<Icmpv6, Icmpv6ParseError>, Instant)>>>>;
 
 //
-#[derive(Debug, Clone)]
 pub struct PingClient<C>
 where
     C: AsyncClient,
@@ -37,6 +36,20 @@ where
     v6_client: Arc<C>,
     v4_recv_from_map: V4RecvFromMap,
     v6_recv_from_map: V6RecvFromMap,
+}
+
+impl<C> Clone for PingClient<C>
+where
+    C: AsyncClient,
+{
+    fn clone(&self) -> Self {
+        Self {
+            v4_client: self.v4_client.clone(),
+            v6_client: self.v6_client.clone(),
+            v4_recv_from_map: self.v4_recv_from_map.clone(),
+            v6_recv_from_map: self.v6_recv_from_map.clone(),
+        }
+    }
 }
 
 impl<C> PingClient<C>
@@ -77,44 +90,64 @@ where
 
     pub async fn handle_v4_recv_from(&self) {
         let mut buf = [0; 2048];
-
-        let mut bytes_map: HashMap<SocketAddr, Vec<u8>> = HashMap::new();
+        let bytes_present_map: Arc<Mutex<HashMap<SocketAddr, Vec<u8>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         loop {
             match self.v4_client.recv_from(&mut buf).await {
                 Ok((n, addr)) => {
                     let instant_end = Instant::now();
+                    let bytes_read = buf[..n].to_owned();
 
-                    let bytes = if let Some(mut bytes) = bytes_map.remove(&addr) {
-                        bytes.extend_from_slice(&buf[..n]);
-                        bytes
-                    } else {
-                        buf[..n].to_owned()
-                    };
+                    let v4_recv_from_map = self.v4_recv_from_map.clone();
+                    let bytes_present_map = bytes_present_map.clone();
 
-                    match Icmpv4::parse_from_packet_bytes(&bytes) {
-                        Ok(Some(icmpv4)) => {
-                            if let Some(tx) = self.v4_recv_from_map.lock().await.remove(&addr) {
-                                if let Err(err) = tx.try_send((Ok(icmpv4), instant_end)) {
-                                    event!(Level::ERROR, "tx.send failed, err:{err} addr:{addr}");
+                    tokio::spawn(async move {
+                        let bytes = if let Some(mut bytes_present) =
+                            bytes_present_map.lock().await.remove(&addr)
+                        {
+                            bytes_present.extend_from_slice(&bytes_read);
+                            bytes_present
+                        } else {
+                            bytes_read
+                        };
+
+                        match Icmpv4::parse_from_packet_bytes(&bytes) {
+                            Ok(Some(icmpv4)) => {
+                                if let Some(tx) = v4_recv_from_map.lock().await.remove(&addr) {
+                                    if let Err(err) = tx.try_send((Ok(icmpv4), instant_end)) {
+                                        event!(
+                                            Level::ERROR,
+                                            "tx.send failed, err:{err} addr:{addr}"
+                                        );
+                                    }
+                                } else {
+                                    event!(
+                                        Level::WARN,
+                                        "v4_recv_from_map.remove None, addr:{addr}"
+                                    );
                                 }
-                            } else {
-                                event!(Level::WARN, "v4_recv_from_map.remove None, addr:{addr}");
+                            }
+                            Ok(None) => {
+                                bytes_present_map.lock().await.insert(addr, bytes);
+                            }
+                            Err(err) => {
+                                if let Some(tx) = v4_recv_from_map.lock().await.remove(&addr) {
+                                    if let Err(err) = tx.try_send((Err(err), instant_end)) {
+                                        event!(
+                                            Level::ERROR,
+                                            "tx.send failed, err:{err} addr:{addr}"
+                                        );
+                                    }
+                                } else {
+                                    event!(
+                                        Level::WARN,
+                                        "v4_recv_from_map.remove None, addr:{addr}"
+                                    );
+                                }
                             }
                         }
-                        Ok(None) => {
-                            bytes_map.insert(addr, bytes);
-                        }
-                        Err(err) => {
-                            if let Some(tx) = self.v4_recv_from_map.lock().await.remove(&addr) {
-                                if let Err(err) = tx.try_send((Err(err), instant_end)) {
-                                    event!(Level::ERROR, "tx.send failed, err:{err} addr:{addr}");
-                                }
-                            } else {
-                                event!(Level::WARN, "v4_recv_from_map.remove None, addr:{addr}");
-                            }
-                        }
-                    }
+                    });
                 }
                 Err(err) => {
                     event!(Level::ERROR, "v4_client.recv_from failed, err:{err}");
@@ -125,44 +158,64 @@ where
 
     pub async fn handle_v6_recv_from(&self) {
         let mut buf = [0; 2048];
-
-        let mut bytes_map: HashMap<SocketAddr, Vec<u8>> = HashMap::new();
+        let bytes_present_map: Arc<Mutex<HashMap<SocketAddr, Vec<u8>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         loop {
             match self.v6_client.recv_from(&mut buf).await {
                 Ok((n, addr)) => {
                     let instant_end = Instant::now();
+                    let bytes_read = buf[..n].to_owned();
 
-                    let bytes = if let Some(mut bytes) = bytes_map.remove(&addr) {
-                        bytes.extend_from_slice(&buf[..n]);
-                        bytes
-                    } else {
-                        buf[..n].to_owned()
-                    };
+                    let v6_recv_from_map = self.v6_recv_from_map.clone();
+                    let bytes_present_map = bytes_present_map.clone();
 
-                    match Icmpv6::parse_from_packet_bytes(&bytes) {
-                        Ok(Some(icmpv6)) => {
-                            if let Some(tx) = self.v6_recv_from_map.lock().await.remove(&addr) {
-                                if let Err(err) = tx.try_send((Ok(icmpv6), instant_end)) {
-                                    event!(Level::ERROR, "tx.send failed, err:{err} addr:{addr}");
+                    tokio::spawn(async move {
+                        let bytes = if let Some(mut bytes_present) =
+                            bytes_present_map.lock().await.remove(&addr)
+                        {
+                            bytes_present.extend_from_slice(&bytes_read);
+                            bytes_present
+                        } else {
+                            bytes_read
+                        };
+
+                        match Icmpv6::parse_from_packet_bytes(&bytes) {
+                            Ok(Some(icmpv6)) => {
+                                if let Some(tx) = v6_recv_from_map.lock().await.remove(&addr) {
+                                    if let Err(err) = tx.try_send((Ok(icmpv6), instant_end)) {
+                                        event!(
+                                            Level::ERROR,
+                                            "tx.send failed, err:{err} addr:{addr}"
+                                        );
+                                    }
+                                } else {
+                                    event!(
+                                        Level::WARN,
+                                        "v6_recv_from_map.remove None, addr:{addr}"
+                                    );
                                 }
-                            } else {
-                                event!(Level::WARN, "v6_recv_from_map.remove None, addr:{addr}");
+                            }
+                            Ok(None) => {
+                                bytes_present_map.lock().await.insert(addr, bytes);
+                            }
+                            Err(err) => {
+                                if let Some(tx) = v6_recv_from_map.lock().await.remove(&addr) {
+                                    if let Err(err) = tx.try_send((Err(err), instant_end)) {
+                                        event!(
+                                            Level::ERROR,
+                                            "tx.send failed, err:{err} addr:{addr}"
+                                        );
+                                    }
+                                } else {
+                                    event!(
+                                        Level::WARN,
+                                        "v6_recv_from_map.remove None, addr:{addr}"
+                                    );
+                                }
                             }
                         }
-                        Ok(None) => {
-                            bytes_map.insert(addr, bytes);
-                        }
-                        Err(err) => {
-                            if let Some(tx) = self.v6_recv_from_map.lock().await.remove(&addr) {
-                                if let Err(err) = tx.try_send((Err(err), instant_end)) {
-                                    event!(Level::ERROR, "tx.send failed, err:{err} addr:{addr}");
-                                }
-                            } else {
-                                event!(Level::WARN, "v6_recv_from_map.remove None, addr:{addr}");
-                            }
-                        }
-                    }
+                    });
                 }
                 Err(err) => {
                     event!(Level::ERROR, "v6_client.recv_from failed, err:{err}");
