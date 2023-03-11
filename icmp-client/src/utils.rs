@@ -42,7 +42,7 @@ pub fn new_std_udp_socket(config: &Config) -> Result<UdpSocket, IoError> {
     #[cfg(unix)]
     use std::os::fd::{FromRawFd as _, IntoRawFd as _};
     #[cfg(windows)]
-    use std::os::windows::{AsRawSocket as _, FromRawSocket as _};
+    use std::os::windows::{FromRawSocket as _, IntoRawSocket as _};
 
     let socket = new_socket2_socket(config)?;
 
