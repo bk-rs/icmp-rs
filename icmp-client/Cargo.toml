@@ -33,3 +33,8 @@ async-trait = { version = "0.1", default-features = false }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 icmp-packet = { version = "0.1", path = "../icmp-packet" }
+
+os_info = { version = "3" }
+
+[package.metadata.cargo-all-features]
+skip_optional_dependencies = true

@@ -10,7 +10,7 @@ use std::{
     time::Instant,
 };
 
-use icmp_client::{AsyncClient, Config as ClientConfig};
+use icmp_client::{AsyncClient, AsyncClientWithConfigError, Config as ClientConfig};
 use icmp_packet::{
     icmpv4::ParseError as Icmpv4ParseError, icmpv6::ParseError as Icmpv6ParseError, Icmp, Icmpv4,
     Icmpv6, PayloadLengthDelimitedEchoRequest,
@@ -32,8 +32,8 @@ pub struct PingClient<C>
 where
     C: AsyncClient,
 {
-    v4_client: Arc<C>,
-    v6_client: Arc<C>,
+    v4_client: Option<Arc<C>>,
+    v6_client: Option<Arc<C>>,
     v4_recv_from_map: V4RecvFromMap,
     v6_recv_from_map: V6RecvFromMap,
 }
@@ -66,25 +66,36 @@ where
     C: AsyncClient,
 {
     pub fn new(
-        mut v4_client_config: ClientConfig,
-        mut v6_client_config: ClientConfig,
-    ) -> Result<Self, IoError> {
-        if v4_client_config.is_ipv6() {
-            return Err(IoError::new(IoErrorKind::Other, "v4_client_config invalid"));
-        }
-        if v4_client_config.bind.is_none() {
-            v4_client_config.bind = Some(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into());
-        }
-        if !v6_client_config.is_ipv6() {
-            return Err(IoError::new(IoErrorKind::Other, "v4_client_config invalid"));
-        }
-        if v6_client_config.bind.is_none() {
-            v6_client_config.bind =
-                Some(SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into());
-        }
+        v4_client_config: Option<ClientConfig>,
+        v6_client_config: Option<ClientConfig>,
+    ) -> Result<Self, AsyncClientWithConfigError> {
+        let v4_client = if let Some(mut v4_client_config) = v4_client_config {
+            if v4_client_config.is_ipv6() {
+                return Err(IoError::new(IoErrorKind::Other, "v4_client_config invalid").into());
+            }
+            if v4_client_config.bind.is_none() {
+                v4_client_config.bind =
+                    Some(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0).into());
+            }
 
-        let v4_client = Arc::new(C::with_config(&v4_client_config)?);
-        let v6_client = Arc::new(C::with_config(&v6_client_config)?);
+            Some(Arc::new(C::with_config(&v4_client_config)?))
+        } else {
+            None
+        };
+
+        let v6_client = if let Some(mut v6_client_config) = v6_client_config {
+            if !v6_client_config.is_ipv6() {
+                return Err(IoError::new(IoErrorKind::Other, "v4_client_config invalid").into());
+            }
+            if v6_client_config.bind.is_none() {
+                v6_client_config.bind =
+                    Some(SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0).into());
+            }
+
+            Some(Arc::new(C::with_config(&v6_client_config)?))
+        } else {
+            None
+        };
 
         let v4_recv_from_map = Arc::new(Mutex::new(HashMap::new()));
         let v6_recv_from_map = Arc::new(Mutex::new(HashMap::new()));
@@ -99,12 +110,17 @@ where
 
     // TODO, Support with spawn and without spawn.
     pub async fn handle_v4_recv_from(&self) {
+        let v4_client = match self.v4_client.as_ref() {
+            Some(x) => x,
+            None => return,
+        };
+
         let mut buf = [0; 2048];
         let bytes_present_map: Arc<Mutex<HashMap<SocketAddr, Vec<u8>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
         loop {
-            match self.v4_client.recv_from(&mut buf).await {
+            match v4_client.recv_from(&mut buf).await {
                 Ok((n, addr)) => {
                     let instant_end = Instant::now();
                     let bytes_read = buf[..n].to_owned();
@@ -167,12 +183,17 @@ where
     }
 
     pub async fn handle_v6_recv_from(&self) {
+        let v6_client = match self.v6_client.as_ref() {
+            Some(x) => x,
+            None => return,
+        };
+
         let mut buf = [0; 2048];
         let bytes_present_map: Arc<Mutex<HashMap<SocketAddr, Vec<u8>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
         loop {
-            match self.v6_client.recv_from(&mut buf).await {
+            match v6_client.recv_from(&mut buf).await {
                 Ok((n, addr)) => {
                     let instant_end = Instant::now();
                     let bytes_read = buf[..n].to_owned();
@@ -279,8 +300,8 @@ where
 
         //
         let client = match ip {
-            IpAddr::V4(_) => &self.v4_client,
-            IpAddr::V6(_) => &self.v6_client,
+            IpAddr::V4(_) => self.v4_client.as_ref().ok_or(PingError::NoV4Client)?,
+            IpAddr::V6(_) => self.v6_client.as_ref().ok_or(PingError::NoV6Client)?,
         };
 
         let instant_begin = Instant::now();
@@ -379,6 +400,8 @@ where
 //
 #[derive(Debug)]
 pub enum PingError {
+    NoV4Client,
+    NoV6Client,
     Send(IoError),
     Icmpv4ParseError(Icmpv4ParseError),
     Icmpv6ParseError(Icmpv6ParseError),
@@ -397,23 +420,14 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_ping() -> Result<(), Box<dyn std::error::Error>> {
-        let client = PingClient::<icmp_client::impl_tokio::Client>::new(
-            ClientConfig::new(),
-            ClientConfig::with_ipv6(),
-        )?;
+    async fn test_ping_with_ipv4() -> Result<(), Box<dyn std::error::Error>> {
+        let client =
+            PingClient::<icmp_client::impl_tokio::Client>::new(Some(ClientConfig::new()), None)?;
 
         {
             let client = client.clone();
             tokio::spawn(async move {
                 client.handle_v4_recv_from().await;
-            });
-        }
-
-        {
-            let client = client.clone();
-            tokio::spawn(async move {
-                client.handle_v6_recv_from().await;
             });
         }
 
@@ -433,6 +447,43 @@ mod tests {
                 }
                 Err(err) => panic!("{err}"),
             }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_ping_with_ipv6() -> Result<(), Box<dyn std::error::Error>> {
+        let client = match PingClient::<icmp_client::impl_tokio::Client>::new(
+            None,
+            Some(ClientConfig::with_ipv6()),
+        ) {
+            Ok(x) => x,
+            Err(err) => {
+                if matches!(
+                    err,
+                    AsyncClientWithConfigError::IcmpV6ProtocolNotSupported(_)
+                ) {
+                    let info = os_info::get();
+                    if info.os_type() == os_info::Type::CentOS
+                        && matches!(info.version(), os_info::Version::Semantic(7, 0, 0))
+                    {
+                        eprintln!("CentOS 7 doesn't support IcmpV6");
+                        return Ok(());
+                    } else {
+                        panic!("{err:?}")
+                    }
+                } else {
+                    panic!("{err:?}")
+                }
+            }
+        };
+
+        {
+            let client = client.clone();
+            tokio::spawn(async move {
+                client.handle_v6_recv_from().await;
+            });
         }
 
         {

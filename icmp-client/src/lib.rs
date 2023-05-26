@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait AsyncClient {
-    fn with_config(config: &Config) -> Result<Self, IoError>
+    fn with_config(config: &Config) -> Result<Self, AsyncClientWithConfigError>
     where
         Self: Sized;
 
@@ -15,6 +15,25 @@ pub trait AsyncClient {
         addr: A,
     ) -> Result<usize, IoError>;
     async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), IoError>;
+}
+
+//
+#[derive(Debug)]
+pub enum AsyncClientWithConfigError {
+    IcmpV6ProtocolNotSupported(IoError),
+    OtherIoError(IoError),
+}
+impl core::fmt::Display for AsyncClientWithConfigError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for AsyncClientWithConfigError {}
+
+impl From<IoError> for AsyncClientWithConfigError {
+    fn from(err: IoError) -> Self {
+        Self::OtherIoError(err)
+    }
 }
 
 //

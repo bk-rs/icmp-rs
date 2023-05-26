@@ -27,10 +27,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::registry().with(fmt::layer()).init();
 
     //
-    let client = PingClient::<icmp_client::impl_tokio::Client>::new(
-        ClientConfig::new(),
-        ClientConfig::with_ipv6(),
-    )?;
+    let client = match ip {
+        IpAddr::V4(_) => {
+            PingClient::<icmp_client::impl_tokio::Client>::new(Some(ClientConfig::new()), None)?
+        }
+        IpAddr::V6(_) => PingClient::<icmp_client::impl_tokio::Client>::new(
+            None,
+            Some(ClientConfig::with_ipv6()),
+        )?,
+    };
 
     {
         let client = client.clone();

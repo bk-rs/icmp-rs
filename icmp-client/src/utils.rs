@@ -1,13 +1,19 @@
-use std::{io::Error as IoError, net::UdpSocket};
+use std::net::UdpSocket;
 
-use crate::config::Config;
+use crate::{config::Config, AsyncClientWithConfigError};
 
 // Ref https://github.com/kolapapa/surge-ping/blob/0.7.3/src/client.rs#L36-L54
-pub fn new_socket2_socket(config: &Config) -> Result<socket2::Socket, IoError> {
+pub fn new_socket2_socket(config: &Config) -> Result<socket2::Socket, AsyncClientWithConfigError> {
     use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
     let socket = if config.is_ipv6() {
-        Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::ICMPV6))?
+        Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::ICMPV6)).map_err(|err| {
+            if err.raw_os_error() == Some(93) {
+                AsyncClientWithConfigError::IcmpV6ProtocolNotSupported(err)
+            } else {
+                AsyncClientWithConfigError::OtherIoError(err)
+            }
+        })?
     } else {
         Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4))?
     };
@@ -38,7 +44,7 @@ pub fn new_socket2_socket(config: &Config) -> Result<socket2::Socket, IoError> {
 }
 
 //
-pub fn new_std_udp_socket(config: &Config) -> Result<UdpSocket, IoError> {
+pub fn new_std_udp_socket(config: &Config) -> Result<UdpSocket, AsyncClientWithConfigError> {
     #[cfg(unix)]
     use std::os::fd::{FromRawFd as _, IntoRawFd as _};
     #[cfg(windows)]

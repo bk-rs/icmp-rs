@@ -24,3 +24,5 @@ tracing = { version = "0.1" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 icmp-client = { version = "0.1", features = ["impl_tokio"], path = "../icmp-client" }
+
+os_info = { version = "3" }
