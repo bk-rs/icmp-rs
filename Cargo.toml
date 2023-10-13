@@ -5,3 +5,4 @@ members = [
     "icmp-client",
     "icmp-packet",
 ]
+resolver = "2"
